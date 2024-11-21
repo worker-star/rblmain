@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Firebase Admin Panel</title>
+    
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.8/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.8/firebase-database-compat.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+
+    <style>
+        /* Basic reset */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        /* Styling body */
+        body {
+            font-family: 'Arial', sans-serif;
+            background: linear-gradient(to right, #6a11cb, #2575fc);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            color: #333;
+        }
+
+        /* Container for login box */
+        .container {
+            background: #fff;
+            padding: 30px;
+            width: 350px;
+            border-radius: 12px;
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
+            text-align: center;
+            animation: fadeIn 1s ease-out;
+        }
+
+        /* Title and Icon */
+        .container h1 {
+            color: #6a11cb;
+            margin-bottom: 20px;
+            font-size: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .container h1 i {
+            margin-right: 8px;
+            font-size: 28px;
+        }
+
+        /* Form styling */
+        form {
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Input fields */
+        input[type="text"],
+        input[type="password"] {
+            width: 100%;
+            padding: 12px;
+            margin: 12px 0;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 16px;
+        }
+
+        /* Show password checkbox */
+        .show-password {
+            display: flex;
+            align-items: center;
+            margin-top: 8px;
+            font-size: 14px;
+            color: #666;
+            cursor: pointer;
+        }
+
+        .show-password input[type="checkbox"] {
+            margin-right: 8px;
+            cursor: pointer;
+        }
+
+        /* Button styling */
+        button {
+            padding: 12px;
+            background-color: #6a11cb;
+            color: #fff;
+            font-size: 16px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            margin-top: 15px;
+            transition: background-color 0.3s ease;
+        }
+
+        button:hover {
+            background-color: #5318a2;
+        }
+
+        /* Change password button */
+        #change-password-btn {
+            background-color: #ff9800;
+        }
+
+        #change-password-btn:hover {
+            background-color: #e08800;
+        }
+
+        /* Error message styling */
+        #error-message {
+            color: #d9534f;
+            margin-top: 10px;
+            font-size: 14px;
+        }
+
+        /* Timer and remaining attempts */
+        #timer,
+        #remaining-attempts {
+            font-size: 14px;
+            color: #555;
+            margin-top: 8px;
+        }
+
+        /* Fade in animation */
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1><i class="fas fa-user-shield"></i> Admin Login</h1>
+        <form id="login-form">
+            <input type="text" id="username" placeholder="Username" required>
+            <input type="password" id="password" placeholder="Password" required>
+            <label class="show-password">
+                <input type="checkbox" id="show-password">
+                Show Password
+            </label>
+            <button type="submit">Login</button>
+            <button type="button" id="change-password-btn">Change Password</button>
+            <p id="error-message"></p>
+            <p id="timer"></p>
+            <p id="remaining-attempts"></p>
+        </form>
+    </div>
+
+    <script>
+        // Firebase configuration
+        const firebaseConfig = {
+  apiKey: "AIzaSyCUp9H-jYvJUM3BIhtpaIH2_1eFkBGGyfI",
+  authDomain: "rbll-6d959.firebaseapp.com",
+  databaseURL: "https://rbll-6d959-default-rtdb.firebaseio.com",
+  projectId: "rbll-6d959",
+  storageBucket: "rbll-6d959.firebasestorage.app",
+  messagingSenderId: "788197114761",
+  appId: "1:788197114761:web:52a98bcd8528ca3c529758",
+  measurementId: "G-EM4YKQLHM1"
+};
+
+        const encryptionKey = '8hTygdnl'; 
+
+        firebase.initializeApp(firebaseConfig);
+
+        const loginForm = document.getElementById('login-form');
+        const errorMessage = document.getElementById('error-message');
+        const showPasswordCheckbox = document.getElementById('show-password');
+        const passwordInput = document.getElementById('password');
+        const timerDisplay = document.getElementById('timer');
+        const remainingAttemptsDisplay = document.getElementById('remaining-attempts');
+
+        const maxAttempts = 3;
+        const blockDuration = 60; 
+        const attemptsKey = 'loginAttempts';
+        const blockedKey = 'isBlocked';
+        const blockStartTimeKey = 'blockStartTime';
+
+        let loginAttempts = parseInt(localStorage.getItem(attemptsKey)) || 0;
+        let isBlocked = localStorage.getItem(blockedKey) === 'true';
+        let blockStartTime = parseInt(localStorage.getItem(blockStartTimeKey)) || 0;
+        let countdownInterval = null;
+
+        function encrypt(text, key) {
+            return CryptoJS.AES.encrypt(text, key).toString();
+        }
+
+        function updateTimer(remainingTime) {
+            const minutes = Math.floor(remainingTime / 60);
+            const seconds = remainingTime % 60;
+            timerDisplay.textContent = `Blocked for: ${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
+        }
+
+        function handleBlocking() {
+            if (countdownInterval) clearInterval(countdownInterval);
+            isBlocked = true;
+            localStorage.setItem(blockedKey, 'true');
+            blockStartTime = Math.floor(Date.now() / 1000);
+            localStorage.setItem(blockStartTimeKey, blockStartTime);
+
+            countdownInterval = setInterval(() => {
+                const currentTime = Math.floor(Date.now() / 1000);
+                const elapsedTime = currentTime - blockStartTime;
+                const remainingTime = blockDuration - elapsedTime;
+
+                if (remainingTime <= 0) {
+                    clearInterval(countdownInterval);
+                    isBlocked = false;
+                    loginAttempts = 1;
+                    localStorage.removeItem(blockedKey);
+                    localStorage.removeItem(blockStartTimeKey);
+                    localStorage.setItem(attemptsKey, loginAttempts);
+                    updateRemainingAttempts();
+                    timerDisplay.textContent = "";
+                    errorMessage.textContent = "";
+                } else {
+                    updateTimer(remainingTime);
+                }
+            }, 1000); 
+        }
+
+        function updateRemainingAttempts() {
+            const remainingAttempts = maxAttempts - loginAttempts;
+            remainingAttemptsDisplay.textContent = `Remaining attempts: ${remainingAttempts}`;
+        }
+
+        updateRemainingAttempts();
+        if (isBlocked) {
+            const currentTime = Math.floor(Date.now() / 1000);
+            const elapsedTime = currentTime - blockStartTime;
+            if (elapsedTime < blockDuration) {
+                handleBlocking();
+            } else {
+                isBlocked = false;
+                loginAttempts = 1;
+                localStorage.removeItem(blockedKey);
+                localStorage.removeItem(blockStartTimeKey);
+                localStorage.setItem(attemptsKey, loginAttempts);
+                updateRemainingAttempts();
+            }
+        }
+
+        showPasswordCheckbox.addEventListener('change', () => {
+            passwordInput.type = showPasswordCheckbox.checked ? 'text' : 'password';
+        });
+
+        loginForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+
+            if (isBlocked) {
+                errorMessage.textContent = "Please wait until your IP is unblocked.";
+                return;
+            }
+
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+
+            const userRef = firebase.database().ref('auth');
+            userRef.once('value', (snapshot) => {
+                const userData = snapshot.val();
+
+                if (userData && userData.username === username && userData.password === password) {
+                    loginAttempts = 0;
+                    localStorage.setItem(attemptsKey, loginAttempts);
+                    const encryptedUsername = encrypt(username, encryptionKey);
+                    const encryptedPassword = encrypt(password, encryptionKey);
+                    window.location.href = `list.html?username=${encodeURIComponent(encryptedUsername)}&password=${encodeURIComponent(encryptedPassword)}`;
+                } else {
+                    loginAttempts++;
+                    localStorage.setItem(attemptsKey, loginAttempts);
+                    updateRemainingAttempts();
+                    if (loginAttempts >= maxAttempts) {
+                        handleBlocking();
+                    } else {
+                        errorMessage.textContent = "Invalid username or password.";
+                    }
+                }
+            });
+        });
+
+        document.getElementById('change-password-btn').addEventListener('click', () => {
+            window.location.href = 'changepass.html';
+        });
+    </script>
+</body>
+</html>
